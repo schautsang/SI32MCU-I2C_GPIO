@@ -7,17 +7,22 @@
 ////////////////////////////////////////////////////
 #define DEVICEADDR    (0x77)
 
-#define SDA_H         (PORT_5->Pn |= PORT_Pin_0)
-#define SDA_L         (PORT_5->Pn &= 0xFFFE)
+#define PORT_SDA      (PORT_3)
+#define PORT_SCL      (PORT_3)
 
-#define SCL_H         (PORT_5->Pn |= PORT_Pin_1) 
-#define SCL_L         (PORT_5->Pn &= 0xFFFD)
+#define PIN_SDA       (PORT_Pin_2)
+#define PIN_SCL       (PORT_Pin_3)
 
-#define SDA_I         (PORT_5->Pn_DIR |= PORT_Pin_0)
-#define SDA_O         (PORT_5->Pn_DIR &= 0xFFFE)
+#define SDA_H         (((PORT_SDA)->Pn) |= (PIN_SDA))
+#define SDA_L         (((PORT_SDA)->Pn) &= ~(PIN_SDA))
 
-#define SDA_read      (PORT_5->Pn & PORT_Pin_0)
-#define SCL_read      (PORT_5->Pn & PORT_Pin_1) 
+#define SCL_H         (((PORT_SCL)->Pn) |= (PIN_SCL)) 
+#define SCL_L         (((PORT_SCL)->Pn) &= ~(PIN_SCL))
+
+#define SDA_I         (((PORT_SDA)->Pn_DIR) |= (PIN_SDA))
+#define SDA_O         (((PORT_SDA)->Pn_DIR) &= ~(PIN_SDA))
+
+#define SDA_READ      ((((PORT_SDA)->Pn) & (PIN_SDA)) ? 1 : 0) 
 //////////////////////////////////////////////////////
 
 
@@ -31,246 +36,249 @@ void DelayMs(uint16_t ms)
 	}
 }
 
-void uf_GPIO_UART_Init(void)
+void LSE32K_Trim_HSI16MIRC(void)
 {
-	PORT_InitTypeDef PORT_InitStruct;
+	uint8_t i, k = 1;
 	
-	CMU_APBPeriph1ClockCmd(CMU_APBPeriph1_PORT, ENABLE);
+	// IRC 16M test
+	PORT_0->Pn_SEL0 |= ( (0x1 << 14) | (0x1 << 15) );
+	XLF_CTRL = 0x3F;
+	IRC16M_CTRL = 0xE0;
+	SYSCLK0 |= 0x8;
 	
-	PORT_InitStruct.PORT_Pin = PORT_Pin_6; // RX = P1.6
-	PORT_InitStruct.PORT_Properity = PORT_Properity_Digital;
-  PORT_InitStruct.PORT_Mode = PORT_Mode_IN;
-  PORT_InitStruct.PORT_OutType = PORT_OutType_PP;
-  PORT_InitStruct.PORT_PullHigh = PORT_PH_NoPullHigh;
-	PORT_InitStruct.PORT_DriveSink = PORT_DS_DriveSinkNormal;	
-	PORT_Init(PORT_1, &PORT_InitStruct);
+	XLF_CTRL &= ~0x40;
+	while (!(XLF_CTRL & 0x40));
 	
-	PORT_InitStruct.PORT_Pin = PORT_Pin_7; // TX = P1.7
-	PORT_InitStruct.PORT_Properity = PORT_Properity_Digital;
-  PORT_InitStruct.PORT_Mode = PORT_Mode_OUT;
-  PORT_InitStruct.PORT_OutType = PORT_OutType_PP;
-  PORT_InitStruct.PORT_PullHigh = PORT_PH_NoPullHigh;
-	PORT_InitStruct.PORT_DriveSink = PORT_DS_DriveSinkNormal;	
-	PORT_Init(PORT_1, &PORT_InitStruct);
-
-	// Port AF
-	PORT_PinAFConfig(PORT_1, PORT_PinSource6, PORT_AF_1); 
-	PORT_PinAFConfig(PORT_1, PORT_PinSource7, PORT_AF_1);		
-}
-
-void uf_GPIO_I2C_Init(void)
-{
-	PORT_InitTypeDef PORT_InitStruct;
+	for (i = 0; i < 7; i++)
+	{
+		IRC16M_CTRL &= ~0x100;
+		while (!(IRC16M_CTRL & 0x100));
+		
+		CLKCAL_CTRL = 0x0;
+		REFCNT = 200;
+		CALCNT = 0;
+		CLKCAL_CTRL = 0x7;
+		
+		while (!(CLKCAL_CTRL & 0x40));
+		
+		if (CALCNT < 101250)
+		{
+			if (k < 6)
+			{
+				IRC16M_CTRL = IRC16M_CTRL + (0x20 >> k++);
+			}
+			else
+			{
+				IRC16M_CTRL = IRC16M_CTRL + 1;
+			}
+		}
+		else
+		{
+			if (k < 6)
+			{
+				IRC16M_CTRL = IRC16M_CTRL - (0x20 >> k++);
+			}
+			else
+			{
+				IRC16M_CTRL = IRC16M_CTRL - 1;
+			}
+		}
+	}
 	
-	CMU_APBPeriph1ClockCmd(CMU_APBPeriph1_PORT, ENABLE);
-	
-	PORT_StructInit(&PORT_InitStruct);
-	PORT_InitStruct.PORT_Pin = PORT_Pin_0; // SDA
-	PORT_InitStruct.PORT_Properity = PORT_Properity_Digital;
-	PORT_InitStruct.PORT_Mode = PORT_Mode_OUT;	
-	PORT_InitStruct.PORT_OutType = PORT_OutType_OD;
-	PORT_InitStruct.PORT_PullHigh = PORT_PH_PullHigh;
-	PORT_InitStruct.PORT_DriveSink = PORT_DS_DriveSinkNormal;	
-	PORT_Init(PORT_5, &PORT_InitStruct);
-
-	PORT_StructInit(&PORT_InitStruct);
-	PORT_InitStruct.PORT_Pin = PORT_Pin_1; //SCL
-	PORT_InitStruct.PORT_Properity = PORT_Properity_Digital;
-	PORT_InitStruct.PORT_Mode = PORT_Mode_OUT;
-	PORT_InitStruct.PORT_OutType = PORT_OutType_OD;
-	PORT_InitStruct.PORT_PullHigh = PORT_PH_PullHigh;
-	PORT_InitStruct.PORT_DriveSink = PORT_DS_DriveSinkNormal;	
-	PORT_Init(PORT_5, &PORT_InitStruct);
+	IRC16M_CTRL &= ~0x100;
+	while (!(IRC16M_CTRL & 0x100));
 }
 
 void I2C_Delay(void)
 { 
 	uint8_t i = 10;
 	
-  while(i--);
+	while(i--);
 }
  
 int I2C_Start(void)  
 {  
-  SDA_O,SDA_H;  
-  SCL_H;  
-  I2C_Delay();
+	SDA_O,SDA_H;  
+	I2C_Delay();
+	
+	SCL_H;  
+	I2C_Delay();
 	
 	SDA_I;
-  if (!SDA_read) 
+	if (!SDA_READ) 
 		return -1;
     
-  SDA_O,SDA_L;  
-  I2C_Delay();
+	SDA_O,SDA_L;  
+	I2C_Delay();
 
 	SDA_I;		
-  if (!SDA_read)   
+	if (!SDA_READ)   
 		return -1;
 		
-  SDA_O,SDA_L;  
-  I2C_Delay();
-		
-  return 0;
+	return 0;
 }  
   
 void I2C_Stop(void)  
 {  
-  SCL_L;  
-  I2C_Delay();
+	SCL_L;  
+	I2C_Delay();
   
-  SDA_O,SDA_L;  
-  I2C_Delay();
+	SDA_O,SDA_L;  
+	I2C_Delay();
   
-  SCL_H;  
-  I2C_Delay();
+	SCL_H;  
+	I2C_Delay();
   
-  SDA_O,SDA_H;  
-  I2C_Delay();  
+	SDA_O,SDA_H;  
+	I2C_Delay();  
 }  
  
 void I2C_Ack(void)  
 {     
-  SCL_L;  
-  I2C_Delay(); 
+	SCL_L;  
+	I2C_Delay(); 
 	
-  SDA_O,SDA_L;  
-  I2C_Delay(); 
+	SDA_O,SDA_L;  
+	I2C_Delay(); 
 	
-  SCL_H;  
-  I2C_Delay(); 
+	SCL_H;  
+	I2C_Delay(); 
 	
-  SCL_L;  
-  I2C_Delay();  
+	SCL_L;  
+	I2C_Delay();  
 }  
  
 void I2C_NoAck(void)  
 {     
-  SCL_L;  
-  I2C_Delay(); 
+	SCL_L;  
+	I2C_Delay(); 
 	
-  SDA_O,SDA_H;  
-  I2C_Delay();
+	SDA_O,SDA_H;  
+	I2C_Delay();
   
-  SCL_H;  
-  I2C_Delay(); 
+	SCL_H;  
+	I2C_Delay(); 
 	
-  SCL_L;  
-  I2C_Delay();  
+	SCL_L;  
+	I2C_Delay();  
 }  
 
 int I2C_WaitAck(void)     
 {  
-  SCL_L;  
-  I2C_Delay();
+	SCL_L;  
+	I2C_Delay();
   
-  SDA_O,SDA_H;            
-  I2C_Delay();
+	SDA_O,SDA_H;
+	I2C_Delay();
   
-  SCL_H;  
-  I2C_Delay();
+	SCL_H;  
+	I2C_Delay();
 
 	SDA_I; 
-  if (SDA_read)  
-  {  
-		SCL_L;  
-    return -1;  
-  } 
+	if (SDA_READ)  
+	{  
+		SCL_L;
+		I2C_Delay();
 		
-  SCL_L;
+		return -1;  
+	} 
 		
-  return 0;  
+	SCL_L;
+	I2C_Delay();
+		
+	return 0;  
 } 
 
 void I2C_SendByte(u8 SendByte)   
 {  
   u8 i; 	
 	
-  for (i = 0; i < 8; i++)  
-  { 
-    SCL_L;  
+	SDA_O;
+	for (i = 0; i < 8; i++)  
+	{ 
+		SCL_L;  
 		I2C_Delay();
-			
-		SDA_O;			
-    if (SendByte&0x80)
+						
+		if (SendByte & 0x80)
 		{					
-      SDA_H; 
+			SDA_H; 
 		}					
-    else
+		else
 		{					
-      SDA_L;
+			SDA_L;
 		}				
-    SendByte <<= 1;  
-    I2C_Delay();
-				
-    SCL_H;  
-    I2C_Delay();  
-  } 
+		SendByte <<= 1;  
+		I2C_Delay();
+					
+		SCL_H;  
+		I2C_Delay();  
+	} 
 		
-  SCL_L;
-  I2C_Delay();
+	SCL_L;
+	I2C_Delay();
 		
-  SDA_O,SDA_H; 
-  I2C_Delay(); 		
+	SDA_O,SDA_H; 
+	I2C_Delay(); 		
 }  
  
 uint8_t I2C_ReceiveByte(void)    
 {   
-  u8 i;  
-  u8 ReceiveByte;  
+	u8 i;  
+	u8 ReceiveByte;  
      
 	SCL_L;
 	I2C_Delay();
 	
-  SDA_O,SDA_H;
+	SDA_O,SDA_H;
 	I2C_Delay();
 	
 	SDA_I;
-  for (i = 0; i < 8; i++)  
-  {
-    SCL_H;
-    I2C_Delay();
+	for (i = 0; i < 8; i++)  
+	{
+		SCL_H;
+		I2C_Delay();
 			
-		ReceiveByte = (ReceiveByte << 1) | SDA_read; 
+		ReceiveByte = (ReceiveByte << 1) | SDA_READ; 
 			
 		SCL_L;  
-    I2C_Delay();				
+		I2C_Delay();				
 	}  
  
-  return ReceiveByte;  
+	return ReceiveByte;  
 }
 
 int I2C_WriteByte(u8 SendByte, u16 WriteAddress, u8 DeviceAddress)  
 {         
-  if (I2C_Start() == -1)
+	if (I2C_Start() == -1)
 	{		
 		I2C_Stop(); 
 		return -1;
 	}
 		
-  I2C_SendByte(DeviceAddress & 0xFFFE); 
-  if (I2C_WaitAck() == -1)  
-  {  
+	I2C_SendByte(DeviceAddress & 0xFFFE); 
+	if (I2C_WaitAck() == -1)  
+	{  
 		I2C_Stop();   
 		return -1;  
-  } 
+	} 
 		
-  I2C_SendByte((u8)(WriteAddress & 0x00FF));          
-  if (I2C_WaitAck() == -1)
+	I2C_SendByte((u8)(WriteAddress & 0x00FF));          
+	if (I2C_WaitAck() == -1)
 	{
 		I2C_Stop(); 
 		return -1;
 	}
 		
-  I2C_SendByte(SendByte);  
-  if (I2C_WaitAck() == -1)
+	I2C_SendByte(SendByte);  
+	if (I2C_WaitAck() == -1)
 	{
 		I2C_Stop(); 
 		return -1;
 	}
 		
-  I2C_Stop();
+	I2C_Stop();
 	
-  return 0;  
+	return 0;  
 } 
 
 int I2C_ReadByte(u8* pBuffer, u8 length, u16 ReadAddress, u8 DeviceAddress)  
@@ -281,52 +289,101 @@ int I2C_ReadByte(u8* pBuffer, u8 length, u16 ReadAddress, u8 DeviceAddress)
 		return -1; 
 	}
 		
-  I2C_SendByte(DeviceAddress & 0xFFFE);
-  if (I2C_WaitAck() == -1)
+	I2C_SendByte(DeviceAddress & 0xFFFE);
+	if (I2C_WaitAck() == -1)
 	{
 		I2C_Stop(); 
 		return -1;
 	}
 		
-  I2C_SendByte((u8)(ReadAddress & 0x00FF));       
-  if (I2C_WaitAck() == -1)
+	I2C_SendByte((u8)(ReadAddress & 0x00FF));       
+	if (I2C_WaitAck() == -1)
 	{
 		I2C_Stop(); 
 		return -1;
 	}
 		
-  if (I2C_Start() == -1)
+	if (I2C_Start() == -1)
 	{
 		I2C_Stop(); 
 		return -1;
 	}
 		
-  I2C_SendByte(DeviceAddress | 0x0001);  
-  if (I2C_WaitAck() == -1)
+	I2C_SendByte(DeviceAddress | 0x0001);  
+	if (I2C_WaitAck() == -1)
 	{
 		I2C_Stop(); 
 		return -1;
 	}
 		
-  while (length)  
-  {  
+	while (length)  
+	{  
 		*pBuffer = I2C_ReceiveByte();
-    if (length == 1)
+		if (length == 1)
 			I2C_NoAck();  
-    else 
+		else 
 			I2C_Ack();   
-    pBuffer++;  
-    length--;  
-  } 
+		pBuffer++;  
+		length--;  
+	} 
 		
-  I2C_Stop();
+	I2C_Stop();
 		
 	return 0;  
+}
+
+void uf_GPIO_I2C_Init(void)
+{
+	PORT_InitTypeDef PORT_InitStruct;
+	
+	CMU_APBPeriph1ClockCmd(CMU_APBPeriph1_PORT, ENABLE);
+	
+	PORT_StructInit(&PORT_InitStruct);
+	PORT_InitStruct.PORT_Pin = PIN_SDA; // SDA
+	PORT_InitStruct.PORT_Properity = PORT_Properity_Digital;
+	PORT_InitStruct.PORT_Mode = PORT_Mode_OUT;	
+	PORT_InitStruct.PORT_OutType = PORT_OutType_OD;
+	PORT_InitStruct.PORT_PullHigh = PORT_PH_PullHigh;
+	PORT_InitStruct.PORT_DriveSink = PORT_DS_DriveSinkNormal;	
+	PORT_Init(PORT_SDA, &PORT_InitStruct);
+
+	PORT_StructInit(&PORT_InitStruct);
+	PORT_InitStruct.PORT_Pin = PIN_SCL; //SCL
+	PORT_InitStruct.PORT_Properity = PORT_Properity_Digital;
+	PORT_InitStruct.PORT_Mode = PORT_Mode_OUT;
+	PORT_InitStruct.PORT_OutType = PORT_OutType_OD;
+	PORT_InitStruct.PORT_PullHigh = PORT_PH_PullHigh;
+	PORT_InitStruct.PORT_DriveSink = PORT_DS_DriveSinkNormal;	
+	PORT_Init(PORT_SCL, &PORT_InitStruct);
+	
+	PORT_WriteBit(PORT_SDA, PIN_SDA, Bit_SET);
+	PORT_WriteBit(PORT_SCL, PIN_SCL, Bit_SET);	
 }
 
 void uf_UART_Init(UART_TypeDef* UARTx)
 {
 	UART_InitTypeDef UART_InitStruct;
+	
+	PORT_InitTypeDef PORT_InitStruct;
+	
+	CMU_APBPeriph1ClockCmd(CMU_APBPeriph1_PORT, ENABLE);
+	PORT_InitStruct.PORT_Pin = PORT_Pin_6; // RX = P1.6
+	PORT_InitStruct.PORT_Properity = PORT_Properity_Digital;
+	PORT_InitStruct.PORT_Mode = PORT_Mode_IN;
+	PORT_InitStruct.PORT_OutType = PORT_OutType_OD;
+	PORT_InitStruct.PORT_PullHigh = PORT_PH_PullHigh;
+	PORT_InitStruct.PORT_DriveSink = PORT_DS_DriveSinkNormal;	
+	PORT_Init(PORT_1, &PORT_InitStruct);	
+	PORT_InitStruct.PORT_Pin = PORT_Pin_7; // TX = P1.7
+	PORT_InitStruct.PORT_Properity = PORT_Properity_Digital;
+	PORT_InitStruct.PORT_Mode = PORT_Mode_OUT;
+	PORT_InitStruct.PORT_OutType = PORT_OutType_PP;
+	PORT_InitStruct.PORT_PullHigh = PORT_PH_NoPullHigh;
+	PORT_InitStruct.PORT_DriveSink = PORT_DS_DriveSinkNormal;	
+	PORT_Init(PORT_1, &PORT_InitStruct);
+	// Port AF
+	PORT_PinAFConfig(PORT_1, PORT_PinSource6, PORT_AF_1); 
+	PORT_PinAFConfig(PORT_1, PORT_PinSource7, PORT_AF_1);	
 
 	CMU_APBPeriph0ClockCmd(CMU_APBPeriph0_UART1, ENABLE);
 	UART_DeInit(UART_1);	
@@ -349,7 +406,7 @@ int fputc(int ch, FILE *stream)
 	while (UART_GetLineStatus(UART_1, UART_LSFLAG_TXREmpty_TXFIFOFull) == SET);	
 	UART_SendData(UART_1, ch);	
 	
-  return ch;
+	return ch;
 }
 
 void NVIC_Init(void)
@@ -358,7 +415,7 @@ void NVIC_Init(void)
 	
 	NVIC_DisableIRQ(UART1_IRQn);
 	NVIC_ClearPendingIRQ(UART1_IRQn);
-	NVIC_SetPriority(UART1_IRQn, 0x40);
+	NVIC_SetPriority(UART1_IRQn, 0x0);
 	//NVIC_EnableIRQ(UART1_IRQn);	
 	
 	__enable_irq();
@@ -379,8 +436,9 @@ int main(void)
 	float Temperature;
 	float Pressure;
 	uint8_t OSS = 0x3;
+
+	LSE32K_Trim_HSI16MIRC();
 	
-	uf_GPIO_UART_Init();
 	uf_GPIO_I2C_Init();	
 	
 	NVIC_Init();
@@ -487,6 +545,6 @@ int main(void)
 			Pressure = P / 100.0;
 			printf("Pressure of BMP180 = %.1f hPa...\n\r", Pressure);	
 
-			DelayMs(5000);
+			DelayMs(3000);
 	}
 }
